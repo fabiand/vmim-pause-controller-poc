@@ -1,22 +1,11 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Pod
 metadata:
   labels:
     app: vmim-pause-controller-poc
   name: vmim-pause-controller-poc
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: vmim-pause-controller-poc
-  strategy: {}
-  template:
-    metadata:
-      labels:
-        app: vmim-pause-controller-poc
-    spec:
-      containers:
-      - image: quay.io/fdeutsch/vmim-pause-controller-poc
-        name: vmim-pause-controller-poc
-        resources: {}
-status: {}
+  containers:
+  - image: quay.io/fdeutsch/vmim-pause-controller-poc:latest
+    name: controller
+

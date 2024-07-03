@@ -1,33 +1,49 @@
 #!/usr/bin/bash
 
+OC=${OC:-oc}
+VIRTCTL=${VIRTCTL:-virtctl}
+
+for B in $OC $VIRTCTL ; do which $B >/dev/null || { echo "Missing $B" ; exit 1 ; } ; done
+
 vmimDuration() {
 	dateToS() { date --date="$@" +%s ; }
 	dateDiff() { echo $(( $(dateToS $1) - $(dateToS $2) )) ; }
-	dateDiff $(oc get vmim $1 -o jsonpath="{.status.migrationState.endTimestamp}{' '}{.status.migrationState.startTimestamp}") ; 
+	dateDiff $($OC get vmim $1 -o jsonpath="{.status.migrationState.endTimestamp}{' '}{.status.migrationState.startTimestamp}") ; 
 }
 
-watch_vmims() { oc get vmim --watch-only -o jsonpath="{'NAMESPACE='}{.metadata.namespace}{' NAME='}{.metadata.name}{' PHASE='}{.status.phase}{' VMI_NAME='}{.spec.vmiName}{'\n'}" ; }
+watch_vmims() { $OC get vmim --watch-only -o jsonpath="{'NAMESPACE='}{.metadata.namespace}{' NAME='}{.metadata.name}{' PHASE='}{.status.phase}{' VMI_NAME='}{.spec.vmiName}{'\n'}" ; }
 
-vmim_exists() { oc get vmim $NAME > /dev/null 2>&1 ; }
+vmim_exists() { $OC get vmim $1 > /dev/null 2>&1 ; }
 
+x() { echo "\$ $@" ; eval "$@" ; }
 handle_phase() {
+	local NAME=$1 PHASE=$2 VMI_NAME=$3
 	case "$PHASE" in
 		Running)
-			echo virtctl pause vmi $VMI_NAME
+			x $VIRTCTL pause vmi $VMI_NAME
 			;;
 		Succeeded)
-		       	virtctl unpause vmi $VMI_NAME
-			vmimDuration $NAME
-			oc delete vmim $NAME
+			[[ "$($OC get vm $VMI_NAME -o jsonpath="{.status.printableStatus}")" == "Paused" ]] && x $VIRTCTL unpause vmi $VMI_NAME
+			x vmimDuration $NAME
+#			x $OC delete vmim $NAME
 			;;
 	esac
 }
 
 handle_vmim() {
-	eval $@
-	vmim_exists || return
-	echo $NAME $PHASE
-	handle_phase
+	local NAMESPACE=$1 NAME=$2 PHASE=$3 VMI_NAME=$4
+	vmim_exists $NAME || return
+	echo "Handling VMIM NS=$NAMESPACE NAME=$NAME PHASE=$PHASE VMI_NAME=$VMI_NAME"
+	handle_phase $NAME $PHASE $VMI_NAME
 }
 
-watch_vmims | while read VARS ; do { handle_vmim $VARS ; echo --- ; } ; done 
+main() {
+	env | grep KUBE && {
+		( cd /tmp ; curl --insecure http://downloads.openshift-console.svc.cluster.local/amd64/linux/oc.tar | tar xf )
+		export OC=/tmp/oc
+	}
+	echo "Watching"
+	watch_vmims | while read VARS ; do { eval $VARS ; handle_vmim "$NAMESPACE" "$NAME" "$PHASE" "$VMI_NAME" ; echo --- ; } ; done 
+}
+
+main
